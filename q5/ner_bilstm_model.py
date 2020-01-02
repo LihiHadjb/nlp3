@@ -18,6 +18,7 @@ logger = logging.getLogger("hw3.q5")
 logger.setLevel(logging.DEBUG)
 logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.DEBUG)
 
+
 class Config:
     """Holds model hyperparams and data information.
 
@@ -25,11 +26,12 @@ class Config:
     information parameters. Model objects are passed a Config() object at
     instantiation.
     """
-    device='cpu'
-    n_word_features = 2 # Number of features derived from every word in the input.
+    device = 'cpu'
+    n_word_features = 2  # Number of features derived from every word in the input.
     window_size = 1
-    n_features = (2 * window_size + 1) * n_word_features # Number of features used for every word in the input (including the window).
-    max_length = 120 # longest sequence to parse
+    n_features = (
+                             2 * window_size + 1) * n_word_features  # Number of features used for every word in the input (including the window).
+    max_length = 120  # longest sequence to parse
     n_classes = 5
     dropout = 0.5
     embed_size = 50
@@ -58,6 +60,7 @@ class NerBiLstmModel(torch.nn.Module):
     This network will predict a sequence of labels (e.g. PER) for a
     given token (e.g. Henry) using a featurized window around the token.
     """
+
     def __init__(self, helper, config, pretrained_embeddings):
         """
         TODO:
@@ -83,7 +86,7 @@ class NerBiLstmModel(torch.nn.Module):
         ### YOUR CODE HERE (3 lines)
         self.embeddings = torch.nn.Embedding.from_pretrained(pretrained_embeddings)
         self.bilstm = torch.nn.LSTM(self.config.n_features, self.config.hidden_size, bidirectional=True)
-        self.linear = torch.nn.linear(self.config.hidden_size, self.config.n_classes, bias=True)
+        self.linear = torch.nn.Linear(self.config.hidden_size, self.config.n_classes, bias=True)
         ### END YOUR CODE
 
     def forward(self, sentences):
@@ -110,14 +113,16 @@ class NerBiLstmModel(torch.nn.Module):
         """
         batch_size, seq_length = sentences.shape[0], sentences.shape[1]
         ### YOUR CODE HERE (5-9 lines)
-        res = self.embeddings(sentences)
+        print(sentences.dtype)
+        res = self.embeddings(sentences.type(torch.LongTensor))
         res = self._dropout(res)
         res = self.bilstm(res)
         res = self._dropout(res)
         res = self.linear(res)
-        tag_probs = torch.softmax(res)
+        tag_probs = torch.nn.LogSoftmax(res)
         ### END YOUR CODE
         return tag_probs
+
 
 class Trainer(TrainerBase):
     def __init__(self, model, config, helper, logger):
@@ -132,7 +137,7 @@ class Trainer(TrainerBase):
         super(Trainer, self).__init__(model, config, helper, logger)
 
         ### YOUR CODE HERE (1 line)
-        self._loss_function = torch.
+        self._loss_function = torch.nn.NLLLoss()
         ### END YOUR CODE
         self._optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
 
@@ -168,10 +173,13 @@ class Trainer(TrainerBase):
             loss: A 0-d tensor (scalar)
         """
         ### YOUR CODE HERE (3-6 lines)
-        raise NotImplementedError
+        masked_tag_probs = torch.masked_fill(tag_probs, masks==True)
+        masked_labels = torch.masked_fill(labels, masks==True)
+
         ### END YOUR CODE
         loss = self._loss_function(masked_tag_probs, masked_labels)
         return loss
+
 
 class DataPreprocessor(BaseDataPreprocessor):
     def pad_sequences(self, examples):
@@ -214,10 +222,17 @@ class DataPreprocessor(BaseDataPreprocessor):
         max_length = self._max_length
         # Use this zero vector when padding sequences.
         zero_vector = [0] * self._n_features
-        zero_label = 4 # corresponds to the 'O' tag
+        zero_label = 4  # corresponds to the 'O' tag
 
         for sentence, labels in examples:
             ### YOUR CODE HERE (~5 lines)
+            # new_sent = torch.tensor(sentence) if len(sentence) <= max_length else torch.tensor(sentence)[:max_length]
+            # new_labels = torch.tensor(labels) if len(sentence) <= max_length else torch.tensor(labels)[:max_length]
+            # new_sent = torch.nn.functional.pad(new_sent, (0, 0, 0, max_length - len(new_sent)), 'constant', zero_vector[0])
+            # new_labels = torch.nn.functional.pad(torch.tensor(new_labels), (0, max_length - len(new_labels)), 'constant',zero_label)
+            # mask = not torch.equal(new_labels, zero_label)
+            # print(mask)
+            # ret.append((new_sent, new_labels, mask))
             mask = [None] * max_length
             new_sent = [zero_vector] * max_length
             new_labels = [zero_label] * max_length
@@ -226,8 +241,10 @@ class DataPreprocessor(BaseDataPreprocessor):
                 new_labels[i] = labels[i] if i < len(sentence) else zero_label
                 mask[i] = True if i < len(sentence) else False
             ret.append((new_sent, new_labels, mask))
-            ### END YOUR CODE
+
+        ### END YOUR CODE
         return ret
+
 
 def do_training(args):
     torch.manual_seed(133)
@@ -252,7 +269,7 @@ def do_training(args):
     embeddings = load_embeddings(args, helper, config.device)
 
     # Initialize model
-    logger.info("Initializing model...",)
+    logger.info("Initializing model...", )
     model = NerBiLstmModel(helper, config, embeddings)
     model.to(config.device)
 
@@ -263,11 +280,11 @@ def do_training(args):
 
     # Start training
     trainer = Trainer(model, config, helper, logger)
-    logger.info("Starting training...",)
+    logger.info("Starting training...", )
     trainer.train(train_examples, dev_examples)
 
     # Save predictions of the best model
-    logger.info("Training completed, saving predictions of the best model...",)
+    logger.info("Training completed, saving predictions of the best model...", )
     with torch.no_grad():
         model.load_state_dict(torch.load(config.model_output))
         model.eval()
@@ -282,6 +299,7 @@ def do_training(args):
         with open(model.config.eval_output, 'w') as f:
             for sentence, labels, predictions in output:
                 print_sentence(f, sentence, labels, predictions)
+
 
 def do_evaluate(args):
     config = Config(args)
@@ -310,6 +328,7 @@ def do_evaluate(args):
         print("Token-level confusion matrix:\n" + token_cm.as_table())
         print("Token-level scores:\n" + token_cm.summary())
         print("Entity level P/R/F1: {:.2f}/{:.2f}/{:.2f}".format(*entity_scores))
+
 
 def do_predict(args):
     config = Config(args)
@@ -342,26 +361,34 @@ def do_predict(args):
         for sentence, labels, predictions in output:
             print_sentence(args.output, sentence, labels, predictions)
 
+
 def do_padding_test(_):
     logger.info("Testing pad_sequences")
     model, config = AttrDict({'_max_length': 4}), AttrDict({'n_features': 2, 'window_size': 1})
-    data_preprocessor= DataPreprocessor(model, config, None)
+    data_preprocessor = DataPreprocessor(model, config, None)
     data = [
-        ([[4,1], [6,0], [7,0]], [1, 0, 0]),
-        ([[3,0], [3,4], [4,5], [5,3], [3,4]], [0, 1, 0, 2, 3]),
-        ]
+        ([[4, 1], [6, 0], [7, 0]], [1, 0, 0]),
+        ([[3, 0], [3, 4], [4, 5], [5, 3], [3, 4]], [0, 1, 0, 2, 3]),
+    ]
     ret = [
-        ([[4,1], [6,0], [7,0], [0,0]], [1, 0, 0, 4], [True, True, True, False]),
-        ([[3,0], [3,4], [4,5], [5,3]], [0, 1, 0, 2], [True, True, True, True])
-        ]
+        ([[4, 1], [6, 0], [7, 0], [0, 0]], [1, 0, 0, 4], [True, True, True, False]),
+        ([[3, 0], [3, 4], [4, 5], [5, 3]], [0, 1, 0, 2], [True, True, True, True])
+    ]
 
     ret_ = data_preprocessor.pad_sequences(data)
     assert len(ret_) == 2, "Did not process all examples: expected {} results, but got {}.".format(2, len(ret_))
     for i in range(2):
-        assert len(ret_[i]) == 3, "Did not populate return values corrected: expected {} items, but got {}.".format(3, len(ret_[i]))
+        assert len(ret_[i]) == 3, "Did not populate return values corrected: expected {} items, but got {}.".format(3,
+                                                                                                                    len(
+                                                                                                                        ret_[
+                                                                                                                            i]))
         for j in range(3):
-            assert ret_[i][j] == ret[i][j], "Expected {}, but got {} for {}-th entry of {}-th example".format(ret[i][j], ret_[i][j], j, i)
+            assert ret_[i][j] == ret[i][j], "Expected {}, but got {} for {}-th entry of {}-th example".format(ret[i][j],
+                                                                                                              ret_[i][
+                                                                                                                  j], j,
+                                                                                                              i)
     logger.info("Passed!")
+
 
 def do_training_test(args):
     logger.info("Testing implementation of NerBiLstmModel")
@@ -390,17 +417,18 @@ def do_training_test(args):
 
     # Start training
     trainer = Trainer(model, config, helper, logger)
-    logger.info("Starting training...",)
+    logger.info("Starting training...", )
     trainer.train(train_examples, dev_examples)
 
     logger.info("Model did not crash!")
     logger.info("Passed!")
 
-def main(arguments_str):  
+
+def main(arguments_str):
     args = sys.argv[1:]
     if arguments_str:
         args = arguments_str.split()
-    
+
     parser = argparse.ArgumentParser(description='Trains and tests an NER model')
     subparsers = parser.add_subparsers()
 
@@ -408,26 +436,36 @@ def main(arguments_str):
     command_parser.set_defaults(func=do_padding_test)
 
     command_parser = subparsers.add_parser('test_training', help='')
-    command_parser.add_argument('-dt', '--data-train', type=argparse.FileType('r'), default="data/tiny.conll", help="Training data")
-    command_parser.add_argument('-dd', '--data-dev', type=argparse.FileType('r'), default="data/tiny.conll", help="Dev data")
-    command_parser.add_argument('-v', '--vocab', type=argparse.FileType('r'), default="data/vocab.txt", help="Path to vocabulary file")
-    command_parser.add_argument('-vv', '--vectors', type=argparse.FileType('r'), default="data/wordVectors.txt", help="Path to word vectors file")
+    command_parser.add_argument('-dt', '--data-train', type=argparse.FileType('r'), default="data/tiny.conll",
+                                help="Training data")
+    command_parser.add_argument('-dd', '--data-dev', type=argparse.FileType('r'), default="data/tiny.conll",
+                                help="Dev data")
+    command_parser.add_argument('-v', '--vocab', type=argparse.FileType('r'), default="data/vocab.txt",
+                                help="Path to vocabulary file")
+    command_parser.add_argument('-vv', '--vectors', type=argparse.FileType('r'), default="data/wordVectors.txt",
+                                help="Path to word vectors file")
     command_parser.add_argument('--device', type=str, default="cpu", help="Device to use")
     command_parser.set_defaults(func=do_training_test)
 
     command_parser = subparsers.add_parser('train', help='')
-    command_parser.add_argument('-dt', '--data-train', type=argparse.FileType('r'), default="data/train.conll", help="Training data")
-    command_parser.add_argument('-dd', '--data-dev', type=argparse.FileType('r'), default="data/dev.conll", help="Dev data")
-    command_parser.add_argument('-v', '--vocab', type=argparse.FileType('r'), default="data/vocab.txt", help="Path to vocabulary file")
-    command_parser.add_argument('-vv', '--vectors', type=argparse.FileType('r'), default="data/wordVectors.txt", help="Path to word vectors file")
+    command_parser.add_argument('-dt', '--data-train', type=argparse.FileType('r'), default="data/train.conll",
+                                help="Training data")
+    command_parser.add_argument('-dd', '--data-dev', type=argparse.FileType('r'), default="data/dev.conll",
+                                help="Dev data")
+    command_parser.add_argument('-v', '--vocab', type=argparse.FileType('r'), default="data/vocab.txt",
+                                help="Path to vocabulary file")
+    command_parser.add_argument('-vv', '--vectors', type=argparse.FileType('r'), default="data/wordVectors.txt",
+                                help="Path to word vectors file")
     command_parser.add_argument('--device', type=str, default="cpu", help="Device to use")
     command_parser.set_defaults(func=do_training)
 
     command_parser = subparsers.add_parser('evaluate', help='')
     command_parser.add_argument('-d', '--data', type=argparse.FileType('r'), default="data/dev.conll", help="Data")
     command_parser.add_argument('-m', '--model-path', help="Model path")
-    command_parser.add_argument('-v', '--vocab', type=argparse.FileType('r'), default="data/vocab.txt", help="Path to vocabulary file")
-    command_parser.add_argument('-vv', '--vectors', type=argparse.FileType('r'), default="data/wordVectors.txt", help="Path to word vectors file")
+    command_parser.add_argument('-v', '--vocab', type=argparse.FileType('r'), default="data/vocab.txt",
+                                help="Path to vocabulary file")
+    command_parser.add_argument('-vv', '--vectors', type=argparse.FileType('r'), default="data/wordVectors.txt",
+                                help="Path to word vectors file")
     command_parser.add_argument('--device', type=str, default="cpu", help="Device to use")
     command_parser.add_argument('-o', '--output', type=argparse.FileType('w'), default=sys.stdout, help="Output file")
     command_parser.set_defaults(func=do_evaluate)
@@ -435,8 +473,10 @@ def main(arguments_str):
     command_parser = subparsers.add_parser('predict', help='')
     command_parser.add_argument('-d', '--data', type=argparse.FileType('r'), default="data/dev.conll", help="Data")
     command_parser.add_argument('-m', '--model-path', help="Model path")
-    command_parser.add_argument('-v', '--vocab', type=argparse.FileType('r'), default="data/vocab.txt", help="Path to vocabulary file")
-    command_parser.add_argument('-vv', '--vectors', type=argparse.FileType('r'), default="data/wordVectors.txt", help="Path to word vectors file")
+    command_parser.add_argument('-v', '--vocab', type=argparse.FileType('r'), default="data/vocab.txt",
+                                help="Path to vocabulary file")
+    command_parser.add_argument('-vv', '--vectors', type=argparse.FileType('r'), default="data/wordVectors.txt",
+                                help="Path to word vectors file")
     command_parser.add_argument('--device', type=str, default="cpu", help="Device to use")
     command_parser.add_argument('-o', '--output', type=argparse.FileType('w'), default=sys.stdout, help="Output file")
     command_parser.set_defaults(func=do_predict)
@@ -447,6 +487,7 @@ def main(arguments_str):
         sys.exit(1)
     else:
         ARGS.func(ARGS)
+
 
 if __name__ == "__main__":
     main(None)
