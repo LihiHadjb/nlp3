@@ -30,7 +30,7 @@ class Config:
     n_word_features = 2  # Number of features derived from every word in the input.
     window_size = 1
     n_features = (
-                             2 * window_size + 1) * n_word_features  # Number of features used for every word in the input (including the window).
+                         2 * window_size + 1) * n_word_features  # Number of features used for every word in the input (including the window).
     max_length = 120  # longest sequence to parse
     n_classes = 5
     dropout = 0.5
@@ -85,7 +85,10 @@ class NerBiLstmModel(torch.nn.Module):
         self._dropout = torch.nn.Dropout(config.dropout)
         ### YOUR CODE HERE (3 lines)
         self.embeddings = torch.nn.Embedding.from_pretrained(pretrained_embeddings)
-        self.bilstm = torch.nn.LSTM(self.config.n_features, self.config.hidden_size, bidirectional=True)
+        self.bilstm = torch.nn.LSTM(self.config.embed_size * self.config.n_features, int(0.5 * self.config.hidden_size),
+                                    bidirectional=True)
+
+        # self.bilstm = torch.nn.LSTM(3*self.config.embed_size*self.config.n_features, int(0.5 * self.config.hidden_size), bidirectional=True)
         self.linear = torch.nn.Linear(self.config.hidden_size, self.config.n_classes, bias=True)
         ### END YOUR CODE
 
@@ -112,14 +115,15 @@ class NerBiLstmModel(torch.nn.Module):
                      for each tag for each word in a sentence.
         """
         batch_size, seq_length = sentences.shape[0], sentences.shape[1]
-        ### YOUR CODE HERE (5-9 lines)
-        print(sentences.dtype)
-        res = self.embeddings(sentences.type(torch.LongTensor))
-        res = self._dropout(res)
-        res = self.bilstm(res)
+        ### YOUR CODE HERE (5-9 lines))
+        log_softmax = torch.nn.LogSoftmax(dim=2)
+        res = self.embeddings(sentences.type(torch.LongTensor).to(self.config.device))
+        res = self._dropout(res).view(
+            (sentences.shape[0], sentences.shape[1], sentences.shape[2] * self.config.embed_size))
+        res = self.bilstm(res)[0]
         res = self._dropout(res)
         res = self.linear(res)
-        tag_probs = torch.nn.LogSoftmax(res)
+        tag_probs = log_softmax(res)
         ### END YOUR CODE
         return tag_probs
 
@@ -173,9 +177,10 @@ class Trainer(TrainerBase):
             loss: A 0-d tensor (scalar)
         """
         ### YOUR CODE HERE (3-6 lines)
-        masked_tag_probs = torch.masked_fill(tag_probs, masks==True)
-        masked_labels = torch.masked_fill(labels, masks==True)
-
+        masked_labels = torch.masked_fill(labels, masks == False, 0).to(self._model.config.device)
+        mask_for_probs = masks.repeat_interleave(tag_probs.shape[2]).view(masks.shape[0], masks.shape[1],
+                                                                          tag_probs.shape[2])
+        masked_tag_probs = torch.masked_fill(tag_probs, mask_for_probs == False, 0).transpose(1, 2).to(self._model.config.device)
         ### END YOUR CODE
         loss = self._loss_function(masked_tag_probs, masked_labels)
         return loss
