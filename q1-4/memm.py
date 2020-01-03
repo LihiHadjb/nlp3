@@ -229,6 +229,7 @@ def memm_viterbi(sent, logreg, vec, index_to_tag_dict, extra_decoding_arguments)
                 best_t = np.argmax(products)
                 bp[k][u][v] = best_t
                 curr_pi[u][v] = products[best_t]
+        prev_pi = curr_pi
 
     if len(sent) == 1:
         predicted_tags[0] = best_t
