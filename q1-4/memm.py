@@ -6,51 +6,6 @@ import os
 import numpy as np
 from collections import defaultdict
 
-
-def get_preds(curr_word, next_word, prev_word, prevprev_word, prev_tag, prevprev_tag):
-    features = extract_features_base(curr_word, next_word, prev_word, prevprev_word, prev_tag, prevprev_tag)
-    features_vec = vectorize_features(vec, features)
-    model_pred = logreg.predict_proba(features_vec)[0]
-    return model_pred
-
-
-def get_sent(sent, logreg, prev_pi, bp, curr_pi, d_preds):
-    predicted_tags = ["O"] * (len(sent))
-    num_tags = len(logreg.classes_)
-    for k in range(len(sent)):
-        for u in logreg.classes_:
-            for v in logreg.classes_:
-                #curr_pi = np.empty((num_tags, num_tags))
-                products = np.empty((num_tags))
-                for t in logreg.classes_:
-                    curr_word = sent[k][0]
-                    next_word = sent[k + 1][0] if k < (len(sent) - 1) else '</s>'
-                    prev_word = sent[k - 1][0] if k > 0 else '<st>'
-                    prevprev_word = sent[k - 2][0] if k > 1 else '<st>'
-                    prev_tag = index_to_tag_dict[u]
-                    prevprev_tag = index_to_tag_dict[t]
-                    model_pred = d_preds[(curr_word, next_word, prev_word, prevprev_word, prev_tag, prevprev_tag)]
-                    products[t] = model_pred[v] * prev_pi[t][u] if k > 0 else model_pred[v]
-
-                best_index = np.argmax(products)
-                bp[k][u][v] = best_index
-                curr_pi[u][v] = products[best_index]
-
-    if len(sent) == 1:
-        predicted_tags[0] = best_index
-    else:
-        predicted_tags[-2], predicted_tags[-1] = np.unravel_index(curr_pi.argmax(), curr_pi.shape)
-        for k in range(len(sent) - 2, 0, -1):
-            y_k = bp[(k + 2) - 1][predicted_tags[(k + 1) - 1]][predicted_tags[(k + 2) - 1]]
-            predicted_tags[k - 1] = y_k
-
-    predicted_tags = [index_to_tag_dict[index] for index in predicted_tags]
-    return predicted_tags
-
-
-
-
-
 def build_extra_decoding_arguments(train_sents):
     """
     Receives: all sentences from training set
@@ -59,8 +14,6 @@ def build_extra_decoding_arguments(train_sents):
 
     extra_decoding_arguments = {}
     ### YOUR CODE HERE
-    #d_preds = defaultdict(lambda curr_word, next_word, prev_word, prevprev_word, prev_tag, prevprev_tag: get_preds(curr_word, next_word, prev_word, prevprev_word, prev_tag, prevprev_tag)
-    #d_sents = defaultdict(lambda sent: get_sent(sent))
     extra_decoding_arguments = {}, {}
     ### END YOUR CODE
 
@@ -100,29 +53,15 @@ def extract_features_base(curr_word, next_word, prev_word, prevprev_word, prev_t
     if n >= 5:
         features['pre5'] = curr_word[0:5]
         features['suff5'] = curr_word[n - 5:n]
-
-    # features['pre2'] = curr_word[0:2] if n >= 2 else ""
-    # features['pre3'] = curr_word[0:3] if n >= 3 else ""
-    # features['pre4'] = curr_word[0:4] if n >= 4 else ""
-    # features['pre5'] = curr_word[0:5] if n >= 5 else ""
-    #
-    # features['suff1'] = curr_word[-1]
-    # features['suff2'] = curr_word[n-2:n] if n >= 2 else ""
-    # features['suff3'] = curr_word[n-3:n] if n >= 3 else ""
-    # features['suff4'] = curr_word[n-4:n] if n >= 4 else ""
-    # features['suff5'] = curr_word[n-5:n] if n >= 5 else ""
     ### END YOUR CODE
     return features
-
 
 def extract_features(sentence, i):
     curr_word = sentence[i][0]
     prev_token = sentence[i - 1] if i > 0 else ('<st>', '*')
     prevprev_token = sentence[i - 2] if i > 1 else ('<st>', '*')
     next_token = sentence[i + 1] if i < (len(sentence) - 1) else ('</s>', 'STOP')
-    return extract_features_base(curr_word, next_token[0], prev_token[0], prevprev_token[0], prev_token[1],
-                                 prevprev_token[1])
-
+    return extract_features_base(curr_word, next_token[0], prev_token[0], prevprev_token[0], prev_token[1], prevprev_token[1])
 
 def vectorize_features(vec, features):
     """
@@ -136,7 +75,6 @@ def vectorize_features(vec, features):
     example = [features]
     return vec.transform(example)
 
-
 def create_examples(sents, tag_to_idx_dict):
     examples = []
     labels = []
@@ -149,7 +87,6 @@ def create_examples(sents, tag_to_idx_dict):
             labels.append(tag_to_idx_dict[sent[i][1]])
 
     return examples, labels
-
 
 
 def memm_greedy(sent, logreg, vec, index_to_tag_dict, extra_decoding_arguments):
@@ -180,10 +117,8 @@ def memm_greedy(sent, logreg, vec, index_to_tag_dict, extra_decoding_arguments):
             best_index = logreg.predict(features_vec)[0]
             best_tag = index_to_tag_dict[best_index]
         predicted_tags[i] = best_tag
-
     ### END YOUR CODE
     return predicted_tags
-
 
 def memm_viterbi(sent, logreg, vec, index_to_tag_dict, extra_decoding_arguments):
     """
@@ -192,43 +127,33 @@ def memm_viterbi(sent, logreg, vec, index_to_tag_dict, extra_decoding_arguments)
     """
     predicted_tags = ["O"] * (len(sent))
     ### YOUR CODE HERE
-    d_preds = extra_decoding_arguments[0]
-    d_sents = extra_decoding_arguments[1]
-    h = tuple(sent)
-    if h in d_sents:
-        return d_sents[h]
-
     num_tags = len(logreg.classes_)
     prev_pi = np.ones((num_tags, num_tags))
     bp = np.zeros((len(sent), num_tags, num_tags), dtype=int)
-
     for k in range(len(sent)):
+        features_tu = []
+        curr_pi = np.empty((num_tags, num_tags))
+        for u in logreg.classes_:
+            for t in logreg.classes_:
+                curr_word = sent[k]
+                next_word = sent[k + 1] if k < (len(sent) - 1) else '</s>'
+                prev_word = sent[k - 1] if k > 0 else '<st>'
+                prevprev_word = sent[k - 2] if k > 1 else '<st>'
+                prev_tag = index_to_tag_dict[u]
+                prevprev_tag = index_to_tag_dict[t]
+                features = extract_features_base(curr_word, next_word, prev_word, prevprev_word, prev_tag, prevprev_tag)
+                features_tu.append(features)
+        features_tu_vec = vec.transform(features_tu)
+        pred_tu = logreg.predict_proba(features_tu_vec)
         for u in logreg.classes_:
             for v in logreg.classes_:
-                curr_pi = np.empty((num_tags, num_tags))
-                model_pred = np.empty(num_tags)
+                prods = []
                 for t in logreg.classes_:
-                    curr_word = sent[k]
-                    next_word = sent[k + 1] if k < (len(sent) - 1) else '</s>'
-                    prev_word = sent[k - 1] if k > 0 else '<st>'
-                    prevprev_word = sent[k - 2] if k > 1 else '<st>'
-                    prev_tag = index_to_tag_dict[u]
-                    prevprev_tag = index_to_tag_dict[t]
-
-                    if (curr_word, next_word, prev_word, prevprev_word, prev_tag, prevprev_tag) in d_preds:
-                        model_for_t = d_preds[(curr_word, next_word, prev_word, prevprev_word, prev_tag, prevprev_tag)]
-
-                    else:
-                        features = extract_features_base(curr_word, next_word, prev_word, prevprev_word, prev_tag, prevprev_tag)
-                        features_vec = vectorize_features(vec, features)
-                        model_for_t = logreg.predict_proba(features_vec)[0]
-                        d_preds[(curr_word, next_word, prev_word, prevprev_word, prev_tag, prevprev_tag)] = model_for_t
-                    model_pred[t] = model_for_t[v]
-                products = model_pred * prev_pi[:, u] if k > 0 else model_pred
-                    #products[t] = model_pred[v] * prev_pi[t][u] if k > 0 else model_pred[v]
-                best_t = np.argmax(products)
+                    prod = prev_pi[t][u] * pred_tu[u*num_tags + t][v]
+                    prods.append(prod)
+                best_t = np.argmax(prods)
+                curr_pi[u][v] = prods[best_t]
                 bp[k][u][v] = best_t
-                curr_pi[u][v] = products[best_t]
         prev_pi = curr_pi
 
     if len(sent) == 1:
@@ -240,10 +165,9 @@ def memm_viterbi(sent, logreg, vec, index_to_tag_dict, extra_decoding_arguments)
             predicted_tags[k-1] = y_k
 
     predicted_tags = [index_to_tag_dict[index] for index in predicted_tags]
-    d_sents[h] = predicted_tags
+
     ### END YOUR CODE
     return predicted_tags
-
 
 def memm_eval(test_data, logreg, vec, index_to_tag_dict, extra_decoding_arguments):
     """
@@ -260,22 +184,19 @@ def memm_eval(test_data, logreg, vec, index_to_tag_dict, extra_decoding_argument
     gold_tag_seqs = []
     greedy_pred_tag_seqs = []
     viterbi_pred_tag_seqs = []
-    for i, sent in enumerate(test_data):
-        print(i)
+    for sent in test_data:
         words, true_tags = zip(*sent)
         gold_tag_seqs.append(true_tags)
 
-
         ### YOUR CODE HERE
-        #greedy_pred_tag_seqs.append(memm_greedy(words, logreg, vec, index_to_tag_dict, extra_decoding_arguments))
+        greedy_pred_tag_seqs.append(memm_greedy(words, logreg, vec, index_to_tag_dict, extra_decoding_arguments))
         viterbi_pred_tag_seqs.append(memm_viterbi(words, logreg, vec, index_to_tag_dict, extra_decoding_arguments))
         ### END YOUR CODE
 
-    #greedy_evaluation = evaluate_ner(gold_tag_seqs, greedy_pred_tag_seqs)
+    greedy_evaluation = evaluate_ner(gold_tag_seqs, greedy_pred_tag_seqs)
     viterbi_evaluation = evaluate_ner(gold_tag_seqs, viterbi_pred_tag_seqs)
 
-    #return greedy_evaluation, viterbi_evaluation
-    return  viterbi_evaluation
+    return greedy_evaluation, viterbi_evaluation
 
 def build_tag_to_idx_dict(train_sentences):
     curr_tag_index = 0
@@ -306,6 +227,7 @@ if __name__ == "__main__":
     vec = DictVectorizer()
     print("Create train examples")
     train_examples, train_labels = create_examples(train_sents, tag_to_idx_dict)
+
 
     num_train_examples = len(train_examples)
     print("#example: " + str(num_train_examples))
